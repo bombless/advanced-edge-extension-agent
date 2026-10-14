@@ -183,12 +183,26 @@
     // If the latest response contains @actions, it's not an error!
     if (text.includes("@actions[")) return false;
 
+    // Check if the latest response has any error phrase
+    let hasErrorPhrase = false;
     for (const phrase of errorPhrases) {
       if (text.includes(phrase)) {
-        return true;
+        hasErrorPhrase = true;
+        break;
       }
     }
-    return false;
+    if (!hasErrorPhrase) return false;
+
+    // Failsafe: Ensure this latest response is indeed after the latest user query,
+    // not an older historical turn that already got answered!
+    const allTurns = Array.from(document.querySelectorAll('user-query, model-response'));
+    const lastTurn = allTurns[allTurns.length - 1];
+    if (lastTurn && lastTurn.tagName.toLowerCase() !== "model-response") {
+      // User is currently typing or user query is latest, don't trigger model error
+      return false;
+    }
+
+    return true;
   }
 
   async function triggerRetry() {

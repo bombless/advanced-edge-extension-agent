@@ -119,7 +119,8 @@ Please acknowledge your readiness and ask the user what task you should assist w
 
   async function injectToolResults(results) {
     const text = AgentProtocol.makeToolResultsPrompt(results);
-    GeminiAdapter.appendToComposer(text);
+    // Clear composer completely first to ensure no stale user text or leftover retry prompt remains
+    GeminiAdapter.setComposerText(text);
     const submitted = await GeminiAdapter.submitComposer();
     if (submitted) {
       log("tool results sent back to Gemini");
