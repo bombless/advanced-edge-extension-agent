@@ -12,9 +12,16 @@ export async function createWorkspaceGuard(workspaceDir) {
   const resolvedRoot = path.resolve(workspaceDir);
   const realRoot = await fs.realpath(resolvedRoot).catch(() => resolvedRoot);
 
+  function normalizePath(p) {
+    return p.toLowerCase().replace(/[\\/]+/g, path.sep);
+  }
+
   function assertInside(targetPath) {
     const resolved = path.resolve(realRoot, targetPath);
-    if (!resolved.startsWith(realRoot + path.sep) && resolved !== realRoot) {
+    const normResolved = normalizePath(resolved);
+    const normRoot = normalizePath(realRoot);
+
+    if (!normResolved.startsWith(normRoot + path.sep) && normResolved !== normRoot) {
       throw new SecurityError(`Path "${targetPath}" resolves outside of workspace root: ${realRoot}`);
     }
     return resolved;

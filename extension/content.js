@@ -117,16 +117,19 @@ Do not fabricate tool results.
       const latest = GeminiAdapter.getLatestModelText();
       if (!latest || latest === lastConversationText) return;
       lastConversationText = latest;
+      log("scan triggered, latest text length:", latest.length);
       void handleActionBlocks(latest);
     }, ACTION_DEBOUNCE_MS);
   }
 
   function startObserver() {
-    const conversation = GeminiAdapter.getConversation();
-    if (!conversation) return;
+    const conversation = GeminiAdapter.getConversation() || document.body;
     const observer = new MutationObserver(scheduleScan);
     observer.observe(conversation, { subtree: true, childList: true, characterData: true });
-    log("observer started");
+    log("observer started on:", conversation.tagName);
+    
+    // Also periodic poll every 1.5s as a failsafe against missed DOM events
+    setInterval(scheduleScan, 1500);
   }
 
   // --- Proactive UI Panel (No shortcut keys needed!) ---

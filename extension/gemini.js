@@ -15,10 +15,14 @@
     "response-container",
     ".response-container",
     ".presented-response-container",
+    "message-content",
+    ".message-content",
     '[aria-label="Gemini response"]',
     '[data-message-author-role="assistant"]',
     '[data-message-author-role="model"]',
-    'article[data-author="assistant"]'
+    'article[data-author="assistant"]',
+    '.conversation-container',
+    'chat-window'
   ];
 
   function visible(element) {
@@ -128,6 +132,20 @@
     }
 
     const unique = [...new Set(nodes)];
+    // Search from the latest downwards
+    for (let i = unique.length - 1; i >= 0; i -= 1) {
+      const text = unique[i]?.innerText || unique[i]?.textContent || "";
+      if (text.includes("@actions[")) {
+        return text;
+      }
+    }
+
+    // Fallback: search entire main/body if assistant selectors missed modern Web Component shadow DOM
+    const bodyText = document.body.innerText || document.body.textContent || "";
+    if (bodyText.includes("@actions[")) {
+      return bodyText;
+    }
+
     const latest = unique[unique.length - 1];
     return latest?.innerText || latest?.textContent || "";
   }

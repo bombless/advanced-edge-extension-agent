@@ -5,6 +5,13 @@
   const ACTION_PREFIX = "@actions[";
   const RESULT_PREFIX = "@tool_results[";
 
+  function sanitizeJson(raw) {
+    // LLMs on Windows frequently output unescaped backslashes in paths like "D:\mcp-agent-workspace"
+    // Valid JSON escape characters after backslash are: ", \, /, b, f, n, r, t, u
+    // Any other backslash must be escaped as \\
+    return raw.replace(/(?<!\\)\\(?!["\\/bfnrtu])/g, "\\\\");
+  }
+
   function extractActionBlocks(text) {
     const blocks = [];
     let searchFrom = 0;
@@ -19,7 +26,13 @@
 
       const raw = text.slice(jsonStart, jsonEnd + 1);
       try {
-        const actions = JSON.parse(raw);
+        let actions;
+        try {
+          actions = JSON.parse(raw);
+        } catch {
+          actions = JSON.parse(sanitizeJson(raw));
+        }
+
         if (Array.isArray(actions)) {
           blocks.push({
             raw,
@@ -28,8 +41,9 @@
             end: jsonEnd + 1
           });
         }
-      } catch (_) {
-        // Wait for streaming completion
+      } catch (err) {
+        // Wait for streaming completion or log syntax failure
+        console.debug("[protocol] JSON parse failed on candidate block:", raw, err);
       }
 
       searchFrom = jsonEnd + 1;
