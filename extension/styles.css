@@ -1,0 +1,96 @@
+#aea-control-panel {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: 12px 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  color: #202124;
+  min-width: 220px;
+  backdrop-filter: blur(10px);
+}
+
+@media (prefers-color-scheme: dark) {
+  #aea-control-panel {
+    background: #1e1f20;
+    border-color: #444746;
+    color: #e3e3e3;
+  }
+}
+
+.aea-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.aea-title {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+}
+
+.aea-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.aea-badge.idle {
+  background: #e8f0fe;
+  color: #1967d2;
+}
+
+.aea-badge.success {
+  background: #e6f4ea;
+  color: #137333;
+}
+
+.aea-badge.busy {
+  background: #fef7e0;
+  color: #b06000;
+}
+
+.aea-badge.warn {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+.aea-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aea-switch-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+}
+
+.aea-btn {
+  background-color: #0078d4;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.aea-btn:hover {
+  background-color: #106ebe;
+}

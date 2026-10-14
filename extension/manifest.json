@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Advanced Edge Agent for Gemini",
+  "version": "1.0.0",
+  "description": "Seamless, shortcut-free AI Agent tool loop for Gemini Web. Powered by local workspace runner.",
+  "host_permissions": [
+    "https://gemini.google.com/*",
+    "http://127.0.0.1:8765/*"
+  ],
+  "permissions": [
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/app*"],
+      "js": ["protocol.js", "gemini.js", "content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Advanced Edge Agent"
+  }
+}

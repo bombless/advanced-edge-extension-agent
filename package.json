@@ -1,0 +1,11 @@
+{
+  "name": "advanced-edge-extension-agent",
+  "version": "1.0.0",
+  "description": "Autonomous Edge Extension Agent for Gemini Web with local SWE-bench style tools runner",
+  "type": "module",
+  "scripts": {
+    "start": "node runner/src/server.js",
+    "test": "node --test runner/test/*.test.js"
+  },
+  "devDependencies": {}
+}
