@@ -38,8 +38,10 @@ Do not fabricate tool results.
   let retryCount = 0;
   const MAX_AUTO_RETRIES = 3;
 
-  // Auto-mode state stored in chrome.storage.local
+  // Auto-mode state and retry strategy ("regenerate" or "prompt") stored in storage
   let isAgentModeActive = true;
+  let retryStrategy = "prompt"; // default: prompt ("你再试试") which is far more reliable for tool loop recovery!
+  let customRetryPrompt = "你再试试";
 
   const log = (...args) => {
     if (DEBUG) console.debug("[advanced-edge-agent/content]", ...args);
@@ -130,15 +132,23 @@ Do not fabricate tool results.
       if (isAgentModeActive && GeminiAdapter.checkModelError()) {
         if (retryCount < MAX_AUTO_RETRIES) {
           retryCount += 1;
-          log("Gemini model error encountered, triggering auto-repair/retry, attempt:", retryCount);
+          log("Gemini model error encountered, triggering auto-repair strategy:", retryStrategy, "attempt:", retryCount);
           updatePanelStatus(`Model error, auto-retrying (${retryCount}/${MAX_AUTO_RETRIES})...`, "warn");
-          GeminiAdapter.triggerRetry().then((ok) => {
-            if (ok) {
-              log("Auto-retry trigger succeeded");
-            } else {
-              log("Auto-retry trigger could not find clickable retry button");
-            }
-          });
+
+          if (retryStrategy === "prompt") {
+            GeminiAdapter.sendRetryPrompt(customRetryPrompt).then((ok) => {
+              log("sendRetryPrompt result:", ok);
+            });
+          } else {
+            GeminiAdapter.triggerRetry().then((ok) => {
+              if (ok) {
+                log("Auto-retry trigger succeeded");
+              } else {
+                log("Auto-retry trigger could not find clickable retry button, falling back to prompt");
+                GeminiAdapter.sendRetryPrompt(customRetryPrompt);
+              }
+            });
+          }
           return;
         } else {
           updatePanelStatus("Model Error (Max Retries)", "error");
@@ -188,11 +198,18 @@ Do not fabricate tool results.
       <div class="aea-body">
         <label class="aea-switch-label">
           <input type="checkbox" id="aea-auto-toggle" ${isAgentModeActive ? "checked" : ""}>
-          <span>Auto Tool Loop</span>
+          <span>Auto Loop</span>
         </label>
         <button id="aea-inject-btn" class="aea-btn" title="Inject Tools System Instructions">
           Inject Prompt
         </button>
+      </div>
+      <div class="aea-strategy-row">
+        <span class="aea-strategy-label">报错自愈:</span>
+        <select id="aea-retry-strategy-select" class="aea-select">
+          <option value="prompt" ${retryStrategy === "prompt" ? "selected" : ""}>回复《你再试试》</option>
+          <option value="regenerate" ${retryStrategy === "regenerate" ? "selected" : ""}>点击重新生成</option>
+        </select>
       </div>
     `;
 
@@ -203,6 +220,13 @@ Do not fabricate tool results.
       isAgentModeActive = Boolean(e.target.checked);
       chrome.storage.local.set({ isAgentModeActive });
       updatePanelStatus(isAgentModeActive ? "Agent Active" : "Agent Paused", isAgentModeActive ? "idle" : "warn");
+    });
+
+    const strategySelect = document.getElementById("aea-retry-strategy-select");
+    strategySelect?.addEventListener("change", (e) => {
+      retryStrategy = e.target.value;
+      chrome.storage.local.set({ retryStrategy });
+      log("retry strategy changed to:", retryStrategy);
     });
 
     document.getElementById("aea-inject-btn")?.addEventListener("click", () => {
@@ -237,9 +261,15 @@ Do not fabricate tool results.
   }
 
   if (isGeminiPage()) {
-    chrome.storage.local.get(["isAgentModeActive"], (result) => {
+    chrome.storage.local.get(["isAgentModeActive", "retryStrategy", "customRetryPrompt"], (result) => {
       if (typeof result.isAgentModeActive === "boolean") {
         isAgentModeActive = result.isAgentModeActive;
+      }
+      if (typeof result.retryStrategy === "string") {
+        retryStrategy = result.retryStrategy;
+      }
+      if (typeof result.customRetryPrompt === "string") {
+        customRetryPrompt = result.customRetryPrompt;
       }
     });
 

@@ -231,6 +231,15 @@
     return false;
   }
 
+  async function sendRetryPrompt(promptText = "你再试试") {
+    const composer = getComposer();
+    if (!composer) return false;
+
+    setComposerText(promptText);
+    await new Promise((r) => setTimeout(r, 200));
+    return submitComposer();
+  }
+
   function getConversation() {
     return document.querySelector("main") || document.body;
   }
@@ -264,6 +273,7 @@
     submitComposer,
     checkModelError,
     triggerRetry,
+    sendRetryPrompt,
     isGenerating,
     waitForGenerationToFinish,
     getConversation,
