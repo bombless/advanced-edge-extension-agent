@@ -107,8 +107,12 @@ Do not fabricate tool results.
   async function injectToolResults(results) {
     const text = AgentProtocol.makeToolResultsPrompt(results);
     GeminiAdapter.appendToComposer(text);
-    GeminiAdapter.submitComposer();
-    log("tool results sent back to Gemini");
+    const submitted = await GeminiAdapter.submitComposer();
+    if (submitted) {
+      log("tool results sent back to Gemini");
+    } else {
+      log("submitComposer deferred or failed (model was generating)");
+    }
   }
 
   function scheduleScan() {

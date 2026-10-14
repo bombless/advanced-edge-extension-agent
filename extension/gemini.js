@@ -97,26 +97,80 @@
     return setComposerText(current + separator + text);
   }
 
-  function submitComposer() {
+  function isGenerating() {
+    // Check if Stop button is present and visible
+    const stopBtn = document.querySelector(
+      'button[aria-label*="Stop"], button[aria-label*="停止"], button[aria-label*="终止"], .stop-button, [data-test-id="stop-button"]'
+    );
+    if (stopBtn && visible(stopBtn)) return true;
+
+    // Check if there is an active streaming indicator
+    const spinner = document.querySelector('mat-progress-spinner, .loading-spinner, .pulsing');
+    if (spinner && visible(spinner)) return true;
+
+    return false;
+  }
+
+  function getSendButton() {
+    // Only return the button if its aria-label explicitly indicates sending, not stopping
+    const candidates = document.querySelectorAll(
+      'button[aria-label*="Send"], button[aria-label*="发送"], .send-button, [data-test-id="send-button"]'
+    );
+    for (const btn of candidates) {
+      if (!visible(btn)) continue;
+      const label = (btn.getAttribute("aria-label") || "").toLowerCase();
+      // Ensure it's not a stop/cancel button
+      if (label.includes("stop") || label.includes("停止") || label.includes("终止")) {
+        continue;
+      }
+      return btn;
+    }
+    return null;
+  }
+
+  async function waitForGenerationToFinish(maxWaitMs = 15000, pollIntervalMs = 300) {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      if (!isGenerating()) {
+        // Extra grace period to allow DOM state to transition from Stop to Send
+        await new Promise((r) => setTimeout(r, 400));
+        if (!isGenerating()) return true;
+      }
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+    }
+    return false;
+  }
+
+  async function submitComposer() {
     const composer = getComposer();
     if (!composer) return false;
 
+    // 1. Wait until generation completely finishes
+    await waitForGenerationToFinish();
+
     composer.focus();
-    const submitBtn = document.querySelector('button[aria-label*="Send"], button[aria-label*="发送"], .send-button');
-    if (submitBtn && visible(submitBtn)) {
+
+    // 2. Locate the real Send button (and make sure it's not the Stop button)
+    const submitBtn = getSendButton();
+    if (submitBtn) {
       submitBtn.click();
       return true;
     }
 
-    composer.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "Enter",
-      code: "Enter",
-      keyCode: 13,
-      which: 13,
-      bubbles: true,
-      cancelable: true
-    }));
-    return true;
+    // 3. Fallback: dispatch Enter key event only when not generating
+    if (!isGenerating()) {
+      composer.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        keyCode: 13,
+        which: 13,
+        bubbles: true,
+        cancelable: true
+      }));
+      return true;
+    }
+
+    return false;
   }
 
   function getConversation() {
@@ -156,6 +210,8 @@
     setComposerText,
     appendToComposer,
     submitComposer,
+    isGenerating,
+    waitForGenerationToFinish,
     getConversation,
     getLatestModelText
   });
