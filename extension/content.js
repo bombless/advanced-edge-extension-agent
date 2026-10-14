@@ -25,6 +25,8 @@ Available tools:
 After emitting @actions[...], stop and wait for the tool results.
 Tool results will be provided as a new user message using @tool_results[...].
 Do not fabricate tool results.
+
+Please acknowledge your readiness and ask the user what task you should assist with.
 `;
 
   const DEBUG = true;
@@ -40,6 +42,7 @@ Do not fabricate tool results.
 
   // Auto-mode state and retry strategy ("regenerate" or "prompt") stored in storage
   let isAgentModeActive = true;
+  let autoInitNewChat = true; // Automatically send initial system prompt on new chat
   let retryStrategy = "prompt"; // default: prompt ("你再试试") which is far more reliable for tool loop recovery!
   let customRetryPrompt = "你再试试";
 
@@ -200,8 +203,12 @@ Do not fabricate tool results.
           <input type="checkbox" id="aea-auto-toggle" ${isAgentModeActive ? "checked" : ""}>
           <span>Auto Loop</span>
         </label>
+        <label class="aea-switch-label" title="在新会话打开时自动发送初始协议提示词">
+          <input type="checkbox" id="aea-auto-init-toggle" ${autoInitNewChat ? "checked" : ""}>
+          <span>Auto Init</span>
+        </label>
         <button id="aea-inject-btn" class="aea-btn" title="Inject Tools System Instructions">
-          Inject Prompt
+          Inject
         </button>
       </div>
       <div class="aea-strategy-row">
@@ -220,6 +227,13 @@ Do not fabricate tool results.
       isAgentModeActive = Boolean(e.target.checked);
       chrome.storage.local.set({ isAgentModeActive });
       updatePanelStatus(isAgentModeActive ? "Agent Active" : "Agent Paused", isAgentModeActive ? "idle" : "warn");
+    });
+
+    const initToggle = document.getElementById("aea-auto-init-toggle");
+    initToggle?.addEventListener("change", (e) => {
+      autoInitNewChat = Boolean(e.target.checked);
+      chrome.storage.local.set({ autoInitNewChat });
+      log("autoInitNewChat set to:", autoInitNewChat);
     });
 
     const strategySelect = document.getElementById("aea-retry-strategy-select");
@@ -243,6 +257,40 @@ Do not fabricate tool results.
     });
   }
 
+  let hasTriggeredAutoInit = false;
+
+  async function checkAndAutoInitChat() {
+    if (!autoInitNewChat || !isAgentModeActive || hasTriggeredAutoInit) return;
+
+    // A fresh session typically has path == "/app" or "/app/" without an ID, or empty messages
+    const isNewChatUrl = location.pathname === "/app" || location.pathname === "/app/";
+    const hasExistingResponses = Boolean(GeminiAdapter.getLatestModelText());
+
+    if (isNewChatUrl || !hasExistingResponses) {
+      // Check if composer is ready
+      const composer = GeminiAdapter.getComposer();
+      if (!composer) return;
+
+      const currentText = GeminiAdapter.getComposerText();
+      // Only trigger if composer is empty or not yet filled
+      if (!currentText && !hasExistingResponses) {
+        hasTriggeredAutoInit = true;
+        log("New conversation detected, automatically sending initial tool instructions prompt...");
+        updatePanelStatus("Auto-initializing...", "busy");
+        
+        GeminiAdapter.setComposerText(TOOL_PROMPT);
+        await new Promise((r) => setTimeout(r, 400));
+        const submitted = await GeminiAdapter.submitComposer();
+        if (submitted) {
+          log("Initial prompt submitted successfully");
+          updatePanelStatus("Agent Ready", "success");
+        } else {
+          log("Auto submitComposer deferred");
+        }
+      }
+    }
+  }
+
   // Auto-inject system prompt on new prompt submission if not yet present
   function hookAutoPromptInjection() {
     window.addEventListener("keydown", (e) => {
@@ -261,9 +309,12 @@ Do not fabricate tool results.
   }
 
   if (isGeminiPage()) {
-    chrome.storage.local.get(["isAgentModeActive", "retryStrategy", "customRetryPrompt"], (result) => {
+    chrome.storage.local.get(["isAgentModeActive", "autoInitNewChat", "retryStrategy", "customRetryPrompt"], (result) => {
       if (typeof result.isAgentModeActive === "boolean") {
         isAgentModeActive = result.isAgentModeActive;
+      }
+      if (typeof result.autoInitNewChat === "boolean") {
+        autoInitNewChat = result.autoInitNewChat;
       }
       if (typeof result.retryStrategy === "string") {
         retryStrategy = result.retryStrategy;
@@ -271,6 +322,10 @@ Do not fabricate tool results.
       if (typeof result.customRetryPrompt === "string") {
         customRetryPrompt = result.customRetryPrompt;
       }
+
+      // Check auto init after settings are loaded
+      setTimeout(checkAndAutoInitChat, 1000);
+      setTimeout(checkAndAutoInitChat, 2500);
     });
 
     startObserver();
