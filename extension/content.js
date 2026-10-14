@@ -35,6 +35,8 @@ Do not fabricate tool results.
   let actionRound = 0;
   let debounceTimer = null;
   let lastConversationText = "";
+  let retryCount = 0;
+  const MAX_AUTO_RETRIES = 3;
 
   // Auto-mode state stored in chrome.storage.local
   let isAgentModeActive = true;
@@ -118,9 +120,32 @@ Do not fabricate tool results.
   function scheduleScan() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
+      // 1. Check for Gemini Model Error and auto-repair
+      if (isAgentModeActive && GeminiAdapter.checkModelError()) {
+        if (retryCount < MAX_AUTO_RETRIES) {
+          retryCount += 1;
+          log("Gemini model error encountered, triggering auto-repair/retry, attempt:", retryCount);
+          updatePanelStatus(`Model error, auto-retrying (${retryCount}/${MAX_AUTO_RETRIES})...`, "warn");
+          GeminiAdapter.triggerRetry().then((ok) => {
+            if (ok) {
+              log("Auto-retry trigger succeeded");
+            } else {
+              log("Auto-retry trigger could not find clickable retry button");
+            }
+          });
+          return;
+        } else {
+          updatePanelStatus("Model Error (Max Retries)", "error");
+        }
+      }
+
       const latest = GeminiAdapter.getLatestModelText();
       if (!latest || latest === lastConversationText) return;
       lastConversationText = latest;
+      // Reset retry count on healthy model text update
+      if (!GeminiAdapter.checkModelError()) {
+        retryCount = 0;
+      }
       log("scan triggered, latest text length:", latest.length);
       void handleActionBlocks(latest);
     }, ACTION_DEBOUNCE_MS);

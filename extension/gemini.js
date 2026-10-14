@@ -173,6 +173,65 @@
     return false;
   }
 
+  function checkModelError() {
+    const errorPhrases = [
+      "I seem to be encountering an error",
+      "遇到错误",
+      "出错了",
+      "An error occurred",
+      "Something went wrong",
+      "Can I try something else for you"
+    ];
+
+    const bodyText = document.body.innerText || "";
+    for (const phrase of errorPhrases) {
+      if (bodyText.includes(phrase)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function triggerRetry() {
+    // 1. Try finding popup / inline menu item with data-test-id="regenerate-option"
+    const regenerateOption = document.querySelector('[data-test-id="regenerate-option"]');
+    if (regenerateOption && visible(regenerateOption)) {
+      regenerateOption.click();
+      return true;
+    }
+
+    // 2. Try finding chip / pill with "重试" or "Retry"
+    const spans = Array.from(document.querySelectorAll('span.label, .chip-label, button span'));
+    for (const span of spans) {
+      const text = span.innerText?.trim();
+      if (text === "重试" || text === "Retry") {
+        const clickable = span.closest('button, [role="button"], [role="menuitem"], gem-menu-item') || span.parentElement;
+        if (clickable && visible(clickable)) {
+          clickable.click();
+          return true;
+        }
+      }
+    }
+
+    // 3. Try finding "重做" (Redo/Regenerate) button in model response toolbar
+    const buttons = Array.from(document.querySelectorAll('button'));
+    const redoButtons = buttons.filter((b) => {
+      const label = b.getAttribute("aria-label") || "";
+      return label === "重做" || label === "Redo" || label.includes("Retry") || label.includes("重新生成");
+    });
+
+    if (redoButtons.length > 0) {
+      // Click the latest redo button
+      const lastRedo = redoButtons[redoButtons.length - 1];
+      if (lastRedo && visible(lastRedo)) {
+        lastRedo.click();
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   function getConversation() {
     return document.querySelector("main") || document.body;
   }
@@ -210,6 +269,8 @@
     setComposerText,
     appendToComposer,
     submitComposer,
+    checkModelError,
+    triggerRetry,
     isGenerating,
     waitForGenerationToFinish,
     getConversation,
