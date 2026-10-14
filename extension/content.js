@@ -271,8 +271,8 @@ Please acknowledge your readiness and ask the user what task you should assist w
       const composer = GeminiAdapter.getComposer();
       if (!composer) return;
 
-      const currentText = GeminiAdapter.getComposerText();
-      // Only trigger if composer is empty or not yet filled
+      const currentText = (GeminiAdapter.getComposerText() || "").trim();
+      // Only trigger if composer is empty (or just whitespace/newlines) and no prior responses
       if (!currentText && !hasExistingResponses) {
         hasTriggeredAutoInit = true;
         log("New conversation detected, automatically sending initial tool instructions prompt...");
@@ -323,9 +323,15 @@ Please acknowledge your readiness and ask the user what task you should assist w
         customRetryPrompt = result.customRetryPrompt;
       }
 
-      // Check auto init after settings are loaded
-      setTimeout(checkAndAutoInitChat, 1000);
-      setTimeout(checkAndAutoInitChat, 2500);
+      // Check auto init after settings are loaded, poll until composer is ready
+      const initInterval = setInterval(() => {
+        if (hasTriggeredAutoInit) {
+          clearInterval(initInterval);
+          return;
+        }
+        checkAndAutoInitChat();
+      }, 800);
+      setTimeout(() => clearInterval(initInterval), 12000);
     });
 
     startObserver();
