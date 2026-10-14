@@ -71,13 +71,19 @@ Do not fabricate tool results.
     for (const block of blocks) {
       const freshActions = block.actions.filter((action) => {
         if (!action || typeof action !== "object") return false;
+        // Key uniquely by action ID if provided, otherwise stable JSON of tool + params
         const key = action.id ? "id:" + String(action.id) : AgentProtocol.stableActionKey(action);
         if (executedActions.has(key)) return false;
-        executedActions.add(key);
         return true;
       });
 
       if (freshActions.length === 0) continue;
+
+      // Mark all fresh actions in this block as executed immediately
+      for (const action of freshActions) {
+        const key = action.id ? "id:" + String(action.id) : AgentProtocol.stableActionKey(action);
+        executedActions.add(key);
+      }
 
       actionRound += 1;
       updatePanelStatus(`Executing action (${freshActions.length})...`, "busy");

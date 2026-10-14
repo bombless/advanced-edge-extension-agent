@@ -12,17 +12,8 @@
   const ASSISTANT_SELECTORS = [
     "model-response",
     ".model-response",
-    "response-container",
-    ".response-container",
-    ".presented-response-container",
-    "message-content",
-    ".message-content",
-    '[aria-label="Gemini response"]',
-    '[data-message-author-role="assistant"]',
     '[data-message-author-role="model"]',
-    'article[data-author="assistant"]',
-    '.conversation-container',
-    'chat-window'
+    '[data-message-author-role="assistant"]'
   ];
 
   function visible(element) {
@@ -180,12 +171,20 @@
       "出错了",
       "An error occurred",
       "Something went wrong",
-      "Can I try something else for you"
+      "Can I try something else for you",
+      "I encountered an error"
     ];
 
-    const bodyText = document.body.innerText || "";
+    // Check ONLY the latest non-empty model-response, not older history turns!
+    const lastResponse = getLatestModelResponseNode();
+    if (!lastResponse) return false;
+
+    const text = lastResponse.innerText || "";
+    // If the latest response contains @actions, it's not an error!
+    if (text.includes("@actions[")) return false;
+
     for (const phrase of errorPhrases) {
-      if (bodyText.includes(phrase)) {
+      if (text.includes(phrase)) {
         return true;
       }
     }
@@ -236,31 +235,25 @@
     return document.querySelector("main") || document.body;
   }
 
-  function getLatestModelText() {
-    const nodes = [];
-    for (const selector of ASSISTANT_SELECTORS) {
-      document.querySelectorAll(selector).forEach((node) => {
-        if (visible(node)) nodes.push(node);
-      });
-    }
-
-    const unique = [...new Set(nodes)];
-    // Search from the latest downwards
-    for (let i = unique.length - 1; i >= 0; i -= 1) {
-      const text = unique[i]?.innerText || unique[i]?.textContent || "";
-      if (text.includes("@actions[")) {
-        return text;
+  function getLatestModelResponseNode() {
+    const responses = Array.from(document.querySelectorAll(
+      'model-response, .model-response, [data-message-author-role="model"], [data-message-author-role="assistant"]'
+    ));
+    for (let i = responses.length - 1; i >= 0; i -= 1) {
+      const text = responses[i]?.innerText?.trim();
+      if (text) {
+        return responses[i];
       }
     }
+    return null;
+  }
 
-    // Fallback: search entire main/body if assistant selectors missed modern Web Component shadow DOM
-    const bodyText = document.body.innerText || document.body.textContent || "";
-    if (bodyText.includes("@actions[")) {
-      return bodyText;
+  function getLatestModelText() {
+    const lastNode = getLatestModelResponseNode();
+    if (lastNode) {
+      return lastNode.innerText || "";
     }
-
-    const latest = unique[unique.length - 1];
-    return latest?.innerText || latest?.textContent || "";
+    return "";
   }
 
   globalThis.GeminiAdapter = Object.freeze({
