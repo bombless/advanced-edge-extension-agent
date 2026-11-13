@@ -185,8 +185,9 @@
 
     // Check if the latest response has any error phrase
     let hasErrorPhrase = false;
+    const normalizedText = text.toLowerCase();
     for (const phrase of errorPhrases) {
-      if (text.includes(phrase)) {
+      if (normalizedText.includes(phrase.toLowerCase())) {
         hasErrorPhrase = true;
         break;
       }

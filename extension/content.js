@@ -73,20 +73,37 @@ Please acknowledge your readiness and ask the user what task you should assist w
     }
 
     const blocks = AgentProtocol.extractActionBlocks(text);
+    log("action parse", {
+      textLength: text.length,
+      blockCount: blocks.length,
+      actionCounts: blocks.map((block) => block.actions.length)
+    });
     for (const block of blocks) {
       const freshActions = block.actions.filter((action) => {
         if (!action || typeof action !== "object") return false;
         // Key uniquely by action ID if provided, otherwise stable JSON of tool + params
-        const key = action.id ? "id:" + String(action.id) : AgentProtocol.stableActionKey(action);
+        // Models commonly reuse IDs such as "a1" across separate turns/conversations.
+        // Include the tool and params so a new action with the same ID is not dropped.
+        const key = action.id
+          ? "id:" + String(action.id) + ":" + AgentProtocol.stableActionKey(action)
+          : AgentProtocol.stableActionKey(action);
         if (executedActions.has(key)) return false;
         return true;
       });
 
-      if (freshActions.length === 0) continue;
+      if (freshActions.length === 0) {
+        log("action block skipped: all action IDs were already executed", block.actions.map((action) => action?.id || null));
+        continue;
+      }
+      log("action dispatch prepared", { count: freshActions.length, ids: freshActions.map((action) => action.id || null) });
 
       // Mark all fresh actions in this block as executed immediately
       for (const action of freshActions) {
-        const key = action.id ? "id:" + String(action.id) : AgentProtocol.stableActionKey(action);
+        // Models commonly reuse IDs such as "a1" across separate turns/conversations.
+        // Include the tool and params so a new action with the same ID is not dropped.
+        const key = action.id
+          ? "id:" + String(action.id) + ":" + AgentProtocol.stableActionKey(action)
+          : AgentProtocol.stableActionKey(action);
         executedActions.add(key);
       }
 
@@ -118,10 +135,12 @@ Please acknowledge your readiness and ask the user what task you should assist w
   }
 
   async function injectToolResults(results) {
+    log("tool result injection stage 1", { resultCount: results.length });
     const text = AgentProtocol.makeToolResultsPrompt(results);
     // Clear composer completely first to ensure no stale user text or leftover retry prompt remains
     GeminiAdapter.setComposerText(text);
     const submitted = await GeminiAdapter.submitComposer();
+    log("tool result injection stage 2: submitComposer", submitted);
     if (submitted) {
       log("tool results sent back to Gemini");
     } else {
@@ -259,34 +278,62 @@ Please acknowledge your readiness and ask the user what task you should assist w
   }
 
   let hasTriggeredAutoInit = false;
+  let lastAutoInitPath = location.pathname;
+  let lastAutoInitHadResponses = false;
 
   async function checkAndAutoInitChat() {
-    if (!autoInitNewChat || !isAgentModeActive || hasTriggeredAutoInit) return;
+    if (!autoInitNewChat || !isAgentModeActive) return;
 
     // A fresh session typically has path == "/app" or "/app/" without an ID, or empty messages
     const isNewChatUrl = location.pathname === "/app" || location.pathname === "/app/";
     const hasExistingResponses = Boolean(GeminiAdapter.getLatestModelText());
 
+    // Gemini is an SPA: starting a new chat does not reload this content script.
+    // Reset the one-shot guard when the route changes or a populated conversation becomes empty.
+    if (location.pathname !== lastAutoInitPath || (lastAutoInitHadResponses && !hasExistingResponses)) {
+      log("conversation transition detected", {
+        fromPath: lastAutoInitPath,
+        toPath: location.pathname,
+        hadResponses: lastAutoInitHadResponses,
+        hasResponses: hasExistingResponses
+      });
+      hasTriggeredAutoInit = false;
+      lastAutoInitPath = location.pathname;
+    }
+    lastAutoInitHadResponses = hasExistingResponses;
+
+    if (hasTriggeredAutoInit) return;
+
     if (isNewChatUrl || !hasExistingResponses) {
       // Check if composer is ready
       const composer = GeminiAdapter.getComposer();
-      if (!composer) return;
+      if (!composer) {
+        log("auto-init waiting: composer not found");
+        return;
+      }
 
       const currentText = (GeminiAdapter.getComposerText() || "").trim();
       // Only trigger if composer is empty (or just whitespace/newlines) and no prior responses
       if (!currentText && !hasExistingResponses) {
         hasTriggeredAutoInit = true;
-        log("New conversation detected, automatically sending initial tool instructions prompt...");
+        log("auto-init stage 1: fresh conversation detected; composer is empty");
         updatePanelStatus("Auto-initializing...", "busy");
         
-        GeminiAdapter.setComposerText(TOOL_PROMPT);
+        const filled = GeminiAdapter.setComposerText(TOOL_PROMPT);
+        log("auto-init stage 2: setComposerText", { filled, composerTextLength: GeminiAdapter.getComposerText().length });
+        if (!filled || !GeminiAdapter.getComposerText().includes("Available tools:")) {
+          hasTriggeredAutoInit = false;
+          updatePanelStatus("Auto-init: composer fill failed", "error");
+          return;
+        }
         await new Promise((r) => setTimeout(r, 400));
         const submitted = await GeminiAdapter.submitComposer();
+        log("auto-init stage 3: submitComposer result", submitted);
         if (submitted) {
-          log("Initial prompt submitted successfully");
-          updatePanelStatus("Agent Ready", "success");
+          updatePanelStatus("Initial prompt submitted", "success");
         } else {
-          log("Auto submitComposer deferred");
+          hasTriggeredAutoInit = false;
+          updatePanelStatus("Auto-init: submit failed", "error");
         }
       }
     }
@@ -324,15 +371,19 @@ Please acknowledge your readiness and ask the user what task you should assist w
         customRetryPrompt = result.customRetryPrompt;
       }
 
-      // Check auto init after settings are loaded, poll until composer is ready
+      // The panel is created before storage.get() completes; synchronize its controls
+      // so the visible switches always reflect the values that actually gate the loop.
+      const autoToggle = document.getElementById("aea-auto-toggle");
+      const initToggle = document.getElementById("aea-auto-init-toggle");
+      if (autoToggle) autoToggle.checked = isAgentModeActive;
+      if (initToggle) initToggle.checked = autoInitNewChat;
+      log("settings loaded", { isAgentModeActive, autoInitNewChat, retryStrategy });
+
+      // Gemini navigation is SPA-based, so keep watching for later new chats too.
       const initInterval = setInterval(() => {
-        if (hasTriggeredAutoInit) {
-          clearInterval(initInterval);
-          return;
-        }
         checkAndAutoInitChat();
       }, 800);
-      setTimeout(() => clearInterval(initInterval), 12000);
+      log("auto-init watcher started (SPA navigation aware)");
     });
 
     startObserver();

@@ -6,10 +6,58 @@
   const RESULT_PREFIX = "@tool_results[";
 
   function sanitizeJson(raw) {
-    // LLMs on Windows frequently output unescaped backslashes in paths like "D:\mcp-agent-workspace"
-    // Valid JSON escape characters after backslash are: ", \, /, b, f, n, r, t, u
-    // Any other backslash must be escaped as \\
-    return raw.replace(/(?<!\\)\\(?!["\\/bfnrtu])/g, "\\\\");
+    // Models may emit single-backslash Windows paths. Segments such as
+    // \typescript or \native resemble valid JSON escapes and can be silently
+    // corrupted by JSON.parse. This fallback preserves existing escaped pairs.
+    let output = "";
+    let inString = false;
+    let escaped = false;
+    let stringContent = "";
+    let windowsPath = false;
+
+    for (let i = 0; i < raw.length; i += 1) {
+      const ch = raw[i];
+      if (!inString) {
+        if (ch === '"') {
+          inString = true;
+          stringContent = "";
+          windowsPath = false;
+        }
+        output += ch;
+        continue;
+      }
+      if (escaped) {
+        escaped = false;
+        stringContent += ch;
+        output += ch;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+        output += ch;
+        continue;
+      }
+      if (ch === "\\") {
+        if (!windowsPath && /^[A-Za-z]:$/.test(stringContent)) windowsPath = true;
+        const next = raw[i + 1];
+        if (windowsPath && next === "\\") {
+          output += "\\\\";
+          i += 1;
+          stringContent += "\\";
+          continue;
+        }
+        if (windowsPath || (next && !/["\\/bfnrtu]/.test(next))) {
+          output += "\\\\";
+          continue;
+        }
+        output += ch;
+        escaped = true;
+        continue;
+      }
+      stringContent += ch;
+      output += ch;
+    }
+    return output;
   }
 
   function extractActionBlocks(text) {
@@ -28,9 +76,11 @@
       try {
         let actions;
         try {
-          actions = JSON.parse(raw);
-        } catch {
+          // Normalize Windows paths before parsing: JSON.parse accepts sequences
+          // like \t and \n, but in a path these are usually literal separators.
           actions = JSON.parse(sanitizeJson(raw));
+        } catch {
+          actions = JSON.parse(raw);
         }
 
         if (Array.isArray(actions)) {
