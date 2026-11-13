@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Advanced Edge Agent for Gemini",
+  "name": "Advanced Edge Agent for CodeArts",
   "version": "1.0.0",
-  "description": "Seamless, shortcut-free AI Agent tool loop for Gemini Web. Powered by local workspace runner.",
+  "description": "Seamless, shortcut-free AI Agent tool loop for Huawei Cloud CodeArts. Powered by local workspace runner.",
   "host_permissions": [
-    "https://gemini.google.com/*",
+    "https://devcloud.cn-north-4.huaweicloud.com/*",
     "http://127.0.0.1:8765/*"
   ],
   "permissions": [
@@ -15,8 +15,8 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://gemini.google.com/app*"],
-      "js": ["protocol.js", "gemini.js", "content.js"],
+      "matches": ["https://devcloud.cn-north-4.huaweicloud.com/chat/*"],
+      "js": ["protocol.js", "codearts.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }

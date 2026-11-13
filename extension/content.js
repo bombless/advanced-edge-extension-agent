@@ -50,16 +50,16 @@ Please acknowledge your readiness and ask the user what task you should assist w
     if (DEBUG) console.debug("[advanced-edge-agent/content]", ...args);
   };
 
-  function isGeminiPage() {
-    return location.hostname === "gemini.google.com" && location.pathname.startsWith("/app");
+  function isCodeArtsPage() {
+    return location.hostname === "devcloud.cn-north-4.huaweicloud.com" && location.pathname.startsWith("/chat/");
   }
 
   function injectToolPrompt() {
-    if (!isGeminiPage()) return false;
-    const composer = GeminiAdapter.getComposer();
+    if (!isCodeArtsPage()) return false;
+    const composer = CodeArtsAdapter.getComposer();
     if (!composer) return false;
 
-    GeminiAdapter.appendToComposer(TOOL_PROMPT);
+    CodeArtsAdapter.appendToComposer(TOOL_PROMPT);
     composer.focus();
     updatePanelStatus("Prompt Injected", "success");
     return true;
@@ -138,8 +138,8 @@ Please acknowledge your readiness and ask the user what task you should assist w
     log("tool result injection stage 1", { resultCount: results.length });
     const text = AgentProtocol.makeToolResultsPrompt(results);
     // Clear composer completely first to ensure no stale user text or leftover retry prompt remains
-    GeminiAdapter.setComposerText(text);
-    const submitted = await GeminiAdapter.submitComposer();
+    CodeArtsAdapter.setComposerText(text);
+    const submitted = await CodeArtsAdapter.submitComposer();
     log("tool result injection stage 2: submitComposer", submitted);
     if (submitted) {
       log("tool results sent back to Gemini");
@@ -152,23 +152,23 @@ Please acknowledge your readiness and ask the user what task you should assist w
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       // 1. Check for Gemini Model Error and auto-repair
-      if (isAgentModeActive && GeminiAdapter.checkModelError()) {
+      if (isAgentModeActive && CodeArtsAdapter.checkModelError()) {
         if (retryCount < MAX_AUTO_RETRIES) {
           retryCount += 1;
           log("Gemini model error encountered, triggering auto-repair strategy:", retryStrategy, "attempt:", retryCount);
           updatePanelStatus(`Model error, auto-retrying (${retryCount}/${MAX_AUTO_RETRIES})...`, "warn");
 
           if (retryStrategy === "prompt") {
-            GeminiAdapter.sendRetryPrompt(customRetryPrompt).then((ok) => {
+            CodeArtsAdapter.sendRetryPrompt(customRetryPrompt).then((ok) => {
               log("sendRetryPrompt result:", ok);
             });
           } else {
-            GeminiAdapter.triggerRetry().then((ok) => {
+            CodeArtsAdapter.triggerRetry().then((ok) => {
               if (ok) {
                 log("Auto-retry trigger succeeded");
               } else {
                 log("Auto-retry trigger could not find clickable retry button, falling back to prompt");
-                GeminiAdapter.sendRetryPrompt(customRetryPrompt);
+                CodeArtsAdapter.sendRetryPrompt(customRetryPrompt);
               }
             });
           }
@@ -178,11 +178,11 @@ Please acknowledge your readiness and ask the user what task you should assist w
         }
       }
 
-      const latest = GeminiAdapter.getLatestModelText();
+      const latest = CodeArtsAdapter.getLatestModelText();
       if (!latest || latest === lastConversationText) return;
       lastConversationText = latest;
       // Reset retry count on healthy model text update
-      if (!GeminiAdapter.checkModelError()) {
+      if (!CodeArtsAdapter.checkModelError()) {
         retryCount = 0;
       }
       log("scan triggered, latest text length:", latest.length);
@@ -191,7 +191,7 @@ Please acknowledge your readiness and ask the user what task you should assist w
   }
 
   function startObserver() {
-    const conversation = GeminiAdapter.getConversation() || document.body;
+    const conversation = CodeArtsAdapter.getConversation() || document.body;
     const observer = new MutationObserver(scheduleScan);
     observer.observe(conversation, { subtree: true, childList: true, characterData: true });
     log("observer started on:", conversation.tagName);
@@ -285,8 +285,8 @@ Please acknowledge your readiness and ask the user what task you should assist w
     if (!autoInitNewChat || !isAgentModeActive) return;
 
     // A fresh session typically has path == "/app" or "/app/" without an ID, or empty messages
-    const isNewChatUrl = location.pathname === "/app" || location.pathname === "/app/";
-    const hasExistingResponses = Boolean(GeminiAdapter.getLatestModelText());
+    const isNewChatUrl = location.pathname === "/chat/home" || location.pathname === "/chat/home/";
+    const hasExistingResponses = Boolean(CodeArtsAdapter.getLatestModelText());
 
     // Gemini is an SPA: starting a new chat does not reload this content script.
     // Reset the one-shot guard when the route changes or a populated conversation becomes empty.
@@ -306,28 +306,28 @@ Please acknowledge your readiness and ask the user what task you should assist w
 
     if (isNewChatUrl || !hasExistingResponses) {
       // Check if composer is ready
-      const composer = GeminiAdapter.getComposer();
+      const composer = CodeArtsAdapter.getComposer();
       if (!composer) {
         log("auto-init waiting: composer not found");
         return;
       }
 
-      const currentText = (GeminiAdapter.getComposerText() || "").trim();
+      const currentText = (CodeArtsAdapter.getComposerText() || "").trim();
       // Only trigger if composer is empty (or just whitespace/newlines) and no prior responses
       if (!currentText && !hasExistingResponses) {
         hasTriggeredAutoInit = true;
         log("auto-init stage 1: fresh conversation detected; composer is empty");
         updatePanelStatus("Auto-initializing...", "busy");
         
-        const filled = GeminiAdapter.setComposerText(TOOL_PROMPT);
-        log("auto-init stage 2: setComposerText", { filled, composerTextLength: GeminiAdapter.getComposerText().length });
-        if (!filled || !GeminiAdapter.getComposerText().includes("Available tools:")) {
+        const filled = CodeArtsAdapter.setComposerText(TOOL_PROMPT);
+        log("auto-init stage 2: setComposerText", { filled, composerTextLength: CodeArtsAdapter.getComposerText().length });
+        if (!filled || !CodeArtsAdapter.getComposerText().includes("Available tools:")) {
           hasTriggeredAutoInit = false;
           updatePanelStatus("Auto-init: composer fill failed", "error");
           return;
         }
         await new Promise((r) => setTimeout(r, 400));
-        const submitted = await GeminiAdapter.submitComposer();
+        const submitted = await CodeArtsAdapter.submitComposer();
         log("auto-init stage 3: submitComposer result", submitted);
         if (submitted) {
           updatePanelStatus("Initial prompt submitted", "success");
@@ -344,19 +344,19 @@ Please acknowledge your readiness and ask the user what task you should assist w
     window.addEventListener("keydown", (e) => {
       if (!isAgentModeActive) return;
       if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey) {
-        const text = GeminiAdapter.getComposerText();
+        const text = CodeArtsAdapter.getComposerText();
         // If user is sending a prompt and this conversation has no model response yet
-        const latest = GeminiAdapter.getLatestModelText();
+        const latest = CodeArtsAdapter.getLatestModelText();
         if (text && !latest && !text.includes("@actions") && !text.includes(TOOL_PROMPT.slice(0, 30))) {
           // Prepend tool prompt silently
-          GeminiAdapter.setComposerText(TOOL_PROMPT + "\n\nUser Question:\n" + text);
+          CodeArtsAdapter.setComposerText(TOOL_PROMPT + "\n\nUser Question:\n" + text);
           log("auto-prepended system prompt to initial query");
         }
       }
     }, true);
   }
 
-  if (isGeminiPage()) {
+  if (isCodeArtsPage()) {
     chrome.storage.local.get(["isAgentModeActive", "autoInitNewChat", "retryStrategy", "customRetryPrompt"], (result) => {
       if (typeof result.isAgentModeActive === "boolean") {
         isAgentModeActive = result.isAgentModeActive;
