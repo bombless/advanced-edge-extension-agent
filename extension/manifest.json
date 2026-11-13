@@ -15,9 +15,18 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://devcloud.cn-north-4.huaweicloud.com/chat/*"],
-      "js": ["protocol.js", "codearts.js", "content.js"],
-      "css": ["styles.css"],
+      "matches": [
+        "https://devcloud.cn-north-4.huaweicloud.com/chat/*"
+      ],
+      "js": [
+        "protocol.js",
+        "codearts.js",
+        "long-message.js",
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
       "run_at": "document_idle"
     }
   ],

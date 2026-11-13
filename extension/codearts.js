@@ -61,11 +61,24 @@
   }
 
   async function submitComposer() {
-    if (!getComposer()) return false;
-    await waitForGenerationToFinish();
+    const composer = getComposer();
+    if (!composer) {
+      console.debug("[advanced-edge-agent/codearts]", new Date().toISOString(), "submit blocked: composer missing");
+      return false;
+    }
+    const initialGenerating = isGenerating();
+    const waitStartedAt = Date.now();
+    console.debug("[advanced-edge-agent/codearts]", new Date().toISOString(), "submit wait begin", { initialGenerating, composerLength: composer.value?.length || 0 });
+    const finished = await waitForGenerationToFinish();
+    const elapsedMs = Date.now() - waitStartedAt;
     const button = getSendButton();
+    console.debug("[advanced-edge-agent/codearts]", new Date().toISOString(), "submit wait end", {
+      finished, elapsedMs, generating: isGenerating(),
+      sendButtonFound: Boolean(button), sendButtonDisabled: button ? button.disabled : null
+    });
     if (!button) return false;
     button.click();
+    console.debug("[advanced-edge-agent/codearts]", new Date().toISOString(), "send button clicked");
     return true;
   }
 

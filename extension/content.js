@@ -47,8 +47,11 @@ Please acknowledge your readiness and ask the user what task you should assist w
   let customRetryPrompt = "你再试试";
 
   const log = (...args) => {
-    if (DEBUG) console.debug("[advanced-edge-agent/content]", ...args);
+    if (DEBUG) console.debug("[advanced-edge-agent/content]", new Date().toISOString(), ...args);
   };
+  let scanSequence = 0;
+  let actionSequence = 0;
+  let mutationBatchCount = 0;
 
   function isCodeArtsPage() {
     return location.hostname === "devcloud.cn-north-4.huaweicloud.com" && location.pathname.startsWith("/chat/");
@@ -76,7 +79,8 @@ Please acknowledge your readiness and ask the user what task you should assist w
     log("action parse", {
       textLength: text.length,
       blockCount: blocks.length,
-      actionCounts: blocks.map((block) => block.actions.length)
+      actionCounts: blocks.map((block) => block.actions.length),
+      tools: blocks.flatMap((block) => block.actions.map((action) => action?.tool || "unknown"))
     });
     for (const block of blocks) {
       const freshActions = block.actions.filter((action) => {
@@ -95,7 +99,13 @@ Please acknowledge your readiness and ask the user what task you should assist w
         log("action block skipped: all action IDs were already executed", block.actions.map((action) => action?.id || null));
         continue;
       }
-      log("action dispatch prepared", { count: freshActions.length, ids: freshActions.map((action) => action.id || null) });
+      const requestId = "aea-" + Date.now() + "-" + (++actionSequence);
+      const dispatchStartedAt = Date.now();
+      log("action dispatch prepared", {
+        requestId, count: freshActions.length,
+        ids: freshActions.map((action) => action.id || null),
+        tools: freshActions.map((action) => action.tool || "unknown")
+      });
 
       // Mark all fresh actions in this block as executed immediately
       for (const action of freshActions) {
@@ -111,11 +121,17 @@ Please acknowledge your readiness and ask the user what task you should assist w
       updatePanelStatus(`Executing action (${freshActions.length})...`, "busy");
 
       chrome.runtime.sendMessage(
-        { type: "execute_actions", actions: freshActions },
+        { type: "execute_actions", requestId, actions: freshActions },
         async (response) => {
-          if (chrome.runtime.lastError || !response?.ok) {
-            const err = chrome.runtime.lastError || response?.error;
-            log("runner execution error", err);
+          const runtimeError = chrome.runtime.lastError?.message || null;
+          log("action response received", {
+            requestId, elapsedMs: Date.now() - dispatchStartedAt,
+            runtimeError, responseOk: Boolean(response?.ok),
+            resultCount: response?.payload?.results?.length
+          });
+          if (runtimeError || !response?.ok) {
+            const err = runtimeError || response?.error;
+            log("runner execution error", { requestId, error: err });
             updatePanelStatus("Runner Error", "error");
             await injectToolResults([{
               id: "runner-error-" + Date.now(),
@@ -127,20 +143,26 @@ Please acknowledge your readiness and ask the user what task you should assist w
           }
 
           updatePanelStatus(`Action round ${actionRound} done`, "success");
-          await injectToolResults(response.payload?.results || []);
+          await injectToolResults(response.payload?.results || [], requestId);
         }
       );
       return;
     }
   }
 
-  async function injectToolResults(results) {
-    log("tool result injection stage 1", { resultCount: results.length });
+  async function injectToolResults(results, requestId = "unknown") {
+    log("tool result injection stage 1", {
+      requestId, resultCount: results.length,
+      results: results.map((item) => ({ id: item?.id, tool: item?.tool, ok: item?.ok, error: item?.error?.message }))
+    });
     const text = AgentProtocol.makeToolResultsPrompt(results);
     // Clear composer completely first to ensure no stale user text or leftover retry prompt remains
     CodeArtsAdapter.setComposerText(text);
     const submitted = await CodeArtsAdapter.submitComposer();
-    log("tool result injection stage 2: submitComposer", submitted);
+    log("tool result injection stage 2: submitComposer", {
+      requestId, submitted, composerLength: text.length,
+      generatingAfterSubmitAttempt: CodeArtsAdapter.isGenerating()
+    });
     if (submitted) {
       log("tool results sent back to Gemini");
     } else {
@@ -148,9 +170,14 @@ Please acknowledge your readiness and ask the user what task you should assist w
     }
   }
 
-  function scheduleScan() {
+  function scheduleScan(trigger = "mutation") {
+    mutationBatchCount += trigger === "mutation" ? 1 : 0;
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
+      const scanId = ++scanSequence;
+      const pendingMutationBatches = mutationBatchCount;
+      mutationBatchCount = 0;
+      log("scan begin", { scanId, trigger, pendingMutationBatches, agentMode: isAgentModeActive });
       // 1. Check for Gemini Model Error and auto-repair
       if (isAgentModeActive && CodeArtsAdapter.checkModelError()) {
         if (retryCount < MAX_AUTO_RETRIES) {
@@ -179,25 +206,43 @@ Please acknowledge your readiness and ask the user what task you should assist w
       }
 
       const latest = CodeArtsAdapter.getLatestModelText();
-      if (!latest || latest === lastConversationText) return;
+      if (!latest || latest === lastConversationText) {
+        log("scan no-op", {
+          scanId, reason: !latest ? "no-visible-assistant-text" : "text-unchanged",
+          latestLength: latest?.length || 0, generating: CodeArtsAdapter.isGenerating()
+        });
+        return;
+      }
       lastConversationText = latest;
       // Reset retry count on healthy model text update
       if (!CodeArtsAdapter.checkModelError()) {
         retryCount = 0;
       }
-      log("scan triggered, latest text length:", latest.length);
+      log("scan text changed", {
+        scanId, latestLength: latest.length,
+        generating: CodeArtsAdapter.isGenerating()
+      });
       void handleActionBlocks(latest);
     }, ACTION_DEBOUNCE_MS);
   }
 
   function startObserver() {
     const conversation = CodeArtsAdapter.getConversation() || document.body;
-    const observer = new MutationObserver(scheduleScan);
+    const observer = new MutationObserver((records) => {
+      scheduleScan("mutation");
+      if (mutationBatchCount === 1 || mutationBatchCount % 20 === 0) {
+        log("observer mutation batch", {
+          recordCount: records.length, totalBatchesSinceScan: mutationBatchCount,
+          conversationTag: conversation.tagName, conversationClass: conversation.className
+        });
+      }
+    });
     observer.observe(conversation, { subtree: true, childList: true, characterData: true });
-    log("observer started on:", conversation.tagName);
-    
-    // Also periodic poll every 1.5s as a failsafe against missed DOM events
-    setInterval(scheduleScan, 1500);
+    log("observer started", {
+      tag: conversation.tagName, className: conversation.className,
+      selector: ".chat-page, .chat-main, .chat-view-wrapper"
+    });
+    setInterval(() => scheduleScan("poll"), 1500);
   }
 
   // --- Proactive UI Panel (No shortcut keys needed!) ---
@@ -241,6 +286,63 @@ Please acknowledge your readiness and ask the user what task you should assist w
     `;
 
     document.body.appendChild(panel);
+
+    // Drag the floating panel by its header and remember its last position.
+    const header = panel.querySelector(".aea-header");
+    let dragState = null;
+
+    const clampPanelPosition = (left, top) => ({
+      left: Math.max(0, Math.min(left, window.innerWidth - panel.offsetWidth)),
+      top: Math.max(0, Math.min(top, window.innerHeight - panel.offsetHeight))
+    });
+
+    chrome.storage.local.get(["aeaPanelPosition"], (stored) => {
+      const saved = stored?.aeaPanelPosition;
+      if (!dragState && Number.isFinite(saved?.left) && Number.isFinite(saved?.top)) {
+        const position = clampPanelPosition(saved.left, saved.top);
+        panel.style.left = `${position.left}px`;
+        panel.style.top = `${position.top}px`;
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+      }
+    });
+
+    header?.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || event.target.closest("button, input, select, a")) return;
+      const rect = panel.getBoundingClientRect();
+      dragState = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top
+      };
+      panel.style.left = `${rect.left}px`;
+      panel.style.top = `${rect.top}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      header.setPointerCapture(event.pointerId);
+      panel.classList.add("aea-dragging");
+      event.preventDefault();
+    });
+
+    header?.addEventListener("pointermove", (event) => {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      const position = clampPanelPosition(
+        event.clientX - dragState.offsetX,
+        event.clientY - dragState.offsetY
+      );
+      panel.style.left = `${position.left}px`;
+      panel.style.top = `${position.top}px`;
+    });
+
+    const finishDragging = (event) => {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      dragState = null;
+      panel.classList.remove("aea-dragging");
+      const rect = panel.getBoundingClientRect();
+      chrome.storage.local.set({ aeaPanelPosition: { left: rect.left, top: rect.top } });
+    };
+    header?.addEventListener("pointerup", finishDragging);
+    header?.addEventListener("pointercancel", finishDragging);
 
     const toggle = document.getElementById("aea-auto-toggle");
     toggle?.addEventListener("change", (e) => {

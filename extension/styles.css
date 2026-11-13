@@ -15,6 +15,19 @@
   backdrop-filter: blur(10px);
 }
 
+.aea-header {
+  cursor: grab;
+  touch-action: none;
+}
+
+#aea-control-panel.aea-dragging .aea-header {
+  cursor: grabbing;
+}
+
+#aea-control-panel.aea-dragging {
+  user-select: none;
+}
+
 @media (prefers-color-scheme: dark) {
   #aea-control-panel {
     background: #1e1f20;
